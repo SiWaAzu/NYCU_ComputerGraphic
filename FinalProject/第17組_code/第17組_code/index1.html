@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>ComputerGraphics_Final</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+        <style>
+            *{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                color: #222;
+                font-family: tahoma, sans-serif;
+                font-size:13px;
+                text-align: left;
+                font-weight: normal;
+
+                background-color: gray;
+                /*background-image: url(assets/placeholder.jpg);*/
+                background-position: 0 bottom;
+                margin: 0px;
+                overflow: hidden;
+            }
+            #info {
+                background-color: rgba( 0, 0, 0, .6 );
+                color: #fff;
+                text-shadow: 0 -1px 0 rgba( 0, 0, 0, .6 );
+                position: absolute;
+                left: 10px; top: 0;
+                padding: 20px;
+                z-index: 100;
+            }
+            #info p{
+                margin-bottom: 10px;
+            }
+            #info p:last-child{
+                margin-bottom: 0;
+            }
+            #container{
+            }
+            h1{
+                font-size: 12px;
+                margin-bottom: 5px;
+            }
+            a{ color: white;}
+            .dg *{
+                box-sizing: content-box;
+            }
+            @media only screen and (max-device-width: 480px) {
+                #info{ display: none;}
+            }
+        </style>
+
+<script src="static/js/three.min.js"></script>
+<script src="static/js/dat.gui.min.js"></script>
+<script src="static/js/ImprovedNoise.js"></script>
+
+    </head>
+
+    <body>
+
+        <div id="info">
+            <p><b>ComputerGraphics_Final</b><br/>
+           </p>
+            <p>Click and drag to move model, scroll to zoom.<br/>
+            </p>
+        </div>
+        <div id="container"></div>
+
+        <script type="x-shader/x-vertex" id="vertexshader">
+
+            varying vec3 vNormal;
+            varying vec2 vUv;
+            varying float depth;
+            varying vec3 vPosition;
+            varying float nDotVP;
+            varying vec3 pos;
+
+            uniform vec2 repeat;
+            uniform vec3 lightPosition;
+            uniform float showOutline;
+
+            void main() {
+
+                float w = 0.5;
+                vec3 posInc = vec3( 0. );
+                if( showOutline == 1. ) posInc = w * normal;
+
+                vUv = repeat * uv;
+
+                vec4 mvPosition = modelViewMatrix * vec4( position + posInc, 1.0 );
+                vPosition = mvPosition.xyz;
+                gl_Position = projectionMatrix * mvPosition;
+                pos = gl_Position.xyz;
+
+                vNormal = normalMatrix * normal;
+                depth = ( length( position.xyz ) / 90. );
+                depth = .5 + .5 * depth;
+
+                nDotVP = max( 0., dot( vNormal, normalize( vec3( lightPosition ) ) ) );
+
+            }
+
+        </script>
+
+        <script type="x-shader/x-fragment" id="fragmentshader">
+
+            uniform sampler2D hatch1;
+            uniform sampler2D hatch2;
+            uniform sampler2D hatch3;
+            uniform sampler2D hatch4;
+            uniform sampler2D hatch5;
+            uniform sampler2D hatch6;
+
+            uniform vec2 resolution;
+            uniform vec2 bkgResolution;
+            uniform vec3 lightPosition;
+
+            vec3 color = vec3( 1., 0., 1. );
+            vec3 lightColor = vec3( 1. );
+
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying float depth;
+            varying vec3 vPosition;
+            varying float nDotVP;
+            varying vec3 pos;
+
+            uniform float ambientWeight;
+            uniform float diffuseWeight;
+            uniform float rimWeight;
+            uniform float specularWeight;
+            uniform float shininess;
+            uniform int solidRender;
+            uniform float showOutline;
+            uniform vec4 inkColor;
+
+            vec4 shade() {
+
+                float diffuse = nDotVP;
+                float specular = 0.;
+                float ambient = 1.;
+
+                vec3 n = normalize( vNormal );
+                
+                vec3 v = -vPosition.xyz;
+                v = normalize(v);
+
+
+                vec3 halfway = normalize(normalize(lightPosition)+v);
+                specular = 0.75*pow(max(dot(halfway,n),0.0),shininess);
+
+                float rim = max( 0., abs( dot( n, normalize( -vPosition.xyz ) ) ) );
+
+                float shading = ambientWeight * ambient + diffuseWeight * diffuse + rimWeight * rim + specularWeight * specular;
+
+                if( solidRender == 1 ) return vec4( shading );
+
+                vec4 c = vec4( 1. ,1., 1., 1. );
+                float step = 1. / 6.;
+                if( shading <= step ){
+                    c = mix( texture2D( hatch6, vUv ), texture2D( hatch5, vUv ), 6. * shading );
+                }
+                if( shading > step && shading <= 2. * step ){
+                    c = mix( texture2D( hatch5, vUv ), texture2D( hatch4, vUv) , 6. * ( shading - step ) );
+                }
+                if( shading > 2. * step && shading <= 3. * step ){
+                    c = mix( texture2D( hatch4, vUv ), texture2D( hatch3, vUv ), 6. * ( shading - 2. * step ) );
+                }
+                if( shading > 3. * step && shading <= 4. * step ){
+                    c = mix( texture2D( hatch3, vUv ), texture2D( hatch2, vUv ), 6. * ( shading - 3. * step ) );
+                }
+                if( shading > 4. * step && shading <= 5. * step ){
+                    c = mix( texture2D( hatch2, vUv ), texture2D( hatch1, vUv ), 6. * ( shading - 4. * step ) );
+                }
+                if( shading > 5. * step ){
+                    c = mix( texture2D( hatch1, vUv ), vec4( 1. ), 6. * ( shading - 5. * step ) );
+                }
+
+                vec4 src = mix( mix( inkColor, vec4( 1. ), c.r ), c, .5 );
+
+                return src;
+            }
+
+            void main() {
+
+                vec2 nUV = vec2( mod( gl_FragCoord.x, bkgResolution.x ) / bkgResolution.x, mod( gl_FragCoord.y, bkgResolution.y ) / bkgResolution.y );
+                vec4 src;
+
+                src = ( .5 * inkColor ) * vec4( showOutline ) + vec4( 1. - showOutline ) * shade();
+
+                gl_FragColor = vec4( src.rgb, 1. );
+            }
+
+        </script>
+
+        <script type="x-shader/x-vertex" id="vs-toon">
+    
+            vec4 lightPosition = vec4( 10., 10., 10., 1. );
+            vec3 camPosition = vec3(0., 10., 10.);
+            varying vec3 lightDir; 
+            varying vec3 vNormal;
+            varying vec3 view;
+
+            uniform float showOutline;
+        
+            void main(){
+                float w = 0.5;
+                vec3 posInc = vec3( 0. );
+                if( showOutline == 1. ) posInc = w * normal;
+                vec4 mvPosition = modelViewMatrix * vec4( position+posInc, 1.0 );
+                //lightDir = normalize((lightPosition.xyz)-mvPosition.xyz);
+                //directional light
+                lightDir = normalize(lightPosition.xyz);
+        
+                vNormal = normalMatrix * normal;
+                view = normalize(camPosition - mvPosition.xyz);
+                
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        </script>
+        <script type="x-shader/x-vertex" id="fs-toon">
+        
+            varying vec3 lightDir;
+            varying vec3 vNormal;
+            varying vec3 view;
+
+            uniform float specularWeight;
+            uniform float rimWeight;
+            uniform float shininess;
+            uniform float diffuseWeight;
+            uniform float ambientWeight;
+            uniform vec4 inkColor;
+            uniform float showOutline;
+
+            void main(){
+                vec3 normal = normalize(vNormal);
+                vec4 color = vec4(1.0,  // R
+                                    0.5,  // G
+                                    0.31,  // B
+                                    1.0); // A
+        
+                color = inkColor;
+                vec4 ambient = vec4(0.4,0.4,0.4,1)*ambientWeight;
+                vec3 halfway = normalize(lightDir + view);
+        
+                vec4 specularColor = vec4(0.9,0.9,0.9,1);
+                float NdotH = dot(normal, halfway);
+                float specularIntensity = pow(NdotH, shininess*shininess)* 100.0 * specularWeight;
+        
+                float specularIntensitySmooth = smoothstep(0.005, 0.01, specularIntensity);
+                vec4 specular = specularIntensitySmooth * specularColor;
+        
+                float NdotL = dot(lightDir, normal);
+                float lightIntensity = smoothstep(0.01, 0.05, NdotL);
+                vec4 light = lightIntensity * vec4(1.0, 1.0, 1.0, 1.0)*diffuseWeight;
+        
+                float rimAmount = 0.719;
+                vec4 rimColor = vec4(1.0, 1.0, 1.0, 1.0);
+                float rimThreshold = 0.1;
+                float rim = (1.0 - dot(view, normal)) ;
+        
+                float rimIntensity =  rim * pow(NdotL, rimThreshold) * rimWeight;
+                //rimIntensity = smoothstep(0.6, 1.0, rimIntensity);
+                rimIntensity = smoothstep(rimAmount - 0.4, rimAmount + 0.5, rimIntensity);
+                //float rimIntensity = rim * pow(NdotL, rimThreshold);
+                rimIntensity = rimIntensity < 0.5 ? 0.0 : 1.0;
+                
+               // gl_FragColor = vec4((color*(light + ambient + rimIntensity + specular)).rgb, 0.8);
+               if (showOutline == 1.)    gl_FragColor=(.5*vec4(0.,0.,0.,1.0))*vec4(showOutline);
+               else gl_FragColor = vec4((color*(light + ambient + rimIntensity + specular)).rgb, 0.8);
+                //gl_FragColor = vec4(1.-showOutline)*vec4((color*(light + ambient + rimIntensity + specular)).rgb, 0.8)+(.5*inkColor)*vec4(showOutline);
+                //light + ambient + rimIntensity + specular
+            }
+        </script>
+
+        <script>
+
+        var src = 'static/'
+
+        var links = document.querySelectorAll( 'a[rel=external]' );
+        for( var j = 0; j < links.length; j++ ) {
+            var a = links[ j ];
+            a.addEventListener( 'click', function( e ) {
+                window.open( this.href, '_blank' );
+                e.preventDefault();
+            }, false );
+        }
+
+        var noise = new ImprovedNoise();
+        var renderer, scene, camera, mesh;
+        var mesh, cube, pMesh, material;
+
+        var fov = 120, nfov = 45;
+
+        var onMouseDownMouseX = 0, onMouseDownMouseY = 0,
+        lon = 0, onMouseDownLon = 0, nlat = 0,
+        lat = 0, onMouseDownLat = 0, nlon = 0,
+        phi = 0, theta = 0;
+        lat = 15, isUserInteracting = false;
+
+        var WIDTH = window.innerWidth;
+        var HEIGHT = window.innerHeight;
+        var colors = [ [ 0, 186, 233 ], [ 222, 0, 21 ], [ 233, 77, 0 ], [ 113, 206, 3 ], [ 219, 118, 255 ] ];
+
+        var Settings = function() {
+            this.ambient = 1;
+            this.diffuse = 100;
+            this.specular = 100;
+            this.rim = 0;
+            this.shininess = 100;
+            this.displayOutline = false;
+            this.solidRender = false;
+            this.inkColor = [ 0, 90, 90 ];
+            this.model = 3;
+            this.type = 1;
+        };
+        var settings = new Settings();
+        var gui = new dat.GUI();
+        var guis = [];
+
+        init();
+
+        function init() {
+
+            for(var i = guis.length-1;i>=0;i--){
+                gui.remove(guis[i])
+            }
+
+            guis = [];
+            guis.push(gui.add( settings, 'ambient', 0.0, 100.0 ));
+            guis.push(gui.add( settings, 'diffuse', 0.0, 100.0 ));
+            guis.push(gui.add( settings, 'specular', 0.0, 100.0 ));
+            guis.push(gui.add( settings, 'rim', 0.0, 100.0 ));
+            guis.push(gui.add( settings, 'shininess', 1, 100 ));
+            guis.push(gui.add( settings, 'displayOutline' ));
+            guis.push(gui.add( settings, 'solidRender' ));
+            guis.push(gui.add( settings, 'model', { Cube: 1, Sphere: 2, TorusKnot: 3, Torus: 4, Distort: 5, Capsule: 6 } ));
+            var shader = gui.add( settings, 'type', { Sketch: 1, Toon: 2 } );
+            guis.push(gui.addColor( settings, 'inkColor' ));
+            guis.push(shader);
+
+            camera = new THREE.PerspectiveCamera( fov, WIDTH / HEIGHT, 1, 1000 );
+            camera.position.z = 300;
+
+            scene = new THREE.Scene();
+
+            renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true } );
+            renderer.setPixelRatio( window.devicePixelRatio )
+            renderer.setSize( WIDTH, HEIGHT );
+            renderer.autoClear = false;
+
+            var container = document.getElementById( 'container' );
+            container.appendChild( renderer.domElement );
+
+            var id = 'hatch_';
+            shader.onChange(function(){
+                if(settings.type == 1){
+                    console.log(123);
+                    material = new THREE.ShaderMaterial( {
+
+                        uniforms:       {
+                            showOutline: { type: 'f', value: 0 },
+                            ambientWeight: { type: 'f', value : 0 },
+                            diffuseWeight: { type: 'f', value : 1 },
+                            rimWeight: { type: 'f', value : 1 },
+                            specularWeight: { type: 'f', value : 1 },
+                            shininess: { type: 'f', value : 1 },
+                            inkColor: { type: 'v4', value: new THREE.Vector3( 0, 0,0 ) },
+                            solidRender: { type: 'i', value: 0 },
+                            resolution: { type: 'v2', value: new THREE.Vector2( 0, 0 ) },
+                            bkgResolution: { type: 'v2', value: new THREE.Vector2( 0, 0 ) },
+                            lightPosition: { type: 'v3', value: new THREE.Vector3( -100, 100, 0 ) },
+                            hatch1: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '0.jpg' ) },
+                            hatch2: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '1.jpg' ) },
+                            hatch3: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '2.jpg' ) },
+                            hatch4: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '3.jpg' ) },
+                            hatch5: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '4.jpg' ) },
+                            hatch6: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '5.jpg' ) },
+                            repeat: { type: 'v2', value: new THREE.Vector2( 0, 0 ) }
+                        },
+                        vertexShader:   document.getElementById( 'vertexshader' ).textContent,
+                        fragmentShader: document.getElementById( 'fragmentshader' ).textContent})
+
+                        material.uniforms.repeat.value.set( 1,1 );
+                        material.uniforms.hatch1.value.wrapS = material.uniforms.hatch1.value.wrapT = THREE.RepeatWrapping;
+                        material.uniforms.hatch2.value.wrapS = material.uniforms.hatch2.value.wrapT = THREE.RepeatWrapping;
+                        material.uniforms.hatch3.value.wrapS = material.uniforms.hatch3.value.wrapT = THREE.RepeatWrapping;
+                        material.uniforms.hatch4.value.wrapS = material.uniforms.hatch4.value.wrapT = THREE.RepeatWrapping;
+                        material.uniforms.hatch5.value.wrapS = material.uniforms.hatch5.value.wrapT = THREE.RepeatWrapping;
+                        material.uniforms.hatch6.value.wrapS = material.uniforms.hatch6.value.wrapT = THREE.RepeatWrapping;
+
+                        var mId = parseInt( settings.model, 10 );
+                        setModel(mId);
+                        //init();
+
+                    }
+
+                else{
+                    console.log(456);
+                    material = new THREE.ShaderMaterial( {
+
+                        uniforms:       {
+                            showOutline: { type: 'f', value: 0 },
+                            ambientWeight: { type: 'f', value : 0 },
+                            diffuseWeight: { type: 'f', value : 1 },
+                            rimWeight: { type: 'f', value : 1 },
+                            specularWeight: { type: 'f', value : 1 },
+                            shininess: { type: 'f', value : 1 },
+                            inkColor: { type: 'v4', value: new THREE.Vector3( 0, 0,0 ) },
+                            solidRender: { type: 'i', value: 0 },
+                            resolution: { type: 'v2', value: new THREE.Vector2( 0, 0 ) },
+                            bkgResolution: { type: 'v2', value: new THREE.Vector2( 0, 0 ) },
+                            lightPosition: { type: 'v3', value: new THREE.Vector3( -100, 100, 0 ) },
+                            hatch1: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '0.jpg' ) },
+                            hatch2: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '1.jpg' ) },
+                            hatch3: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '2.jpg' ) },
+                            hatch4: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '3.jpg' ) },
+                            hatch5: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '4.jpg' ) },
+                            hatch6: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '5.jpg' ) },
+                            repeat: { type: 'v2', value: new THREE.Vector2( 0, 0 ) }
+                        },
+                        vertexShader:   document.getElementById( 'vs-toon' ).textContent,
+                        fragmentShader: document.getElementById( 'fs-toon' ).textContent})
+
+
+                        material.uniforms.repeat.value.set( 1,1 );
+                        material.uniforms.hatch1.value.wrapS = material.uniforms.hatch1.value.wrapT = THREE.RepeatWrapping;
+                        material.uniforms.hatch2.value.wrapS = material.uniforms.hatch2.value.wrapT = THREE.RepeatWrapping;
+                        material.uniforms.hatch3.value.wrapS = material.uniforms.hatch3.value.wrapT = THREE.RepeatWrapping;
+                        material.uniforms.hatch4.value.wrapS = material.uniforms.hatch4.value.wrapT = THREE.RepeatWrapping;
+                        material.uniforms.hatch5.value.wrapS = material.uniforms.hatch5.value.wrapT = THREE.RepeatWrapping;
+                        material.uniforms.hatch6.value.wrapS = material.uniforms.hatch6.value.wrapT = THREE.RepeatWrapping;
+
+                        var mId = parseInt( settings.model, 10 );
+                        setModel(mId);
+                }
+                
+            })
+
+            material = new THREE.ShaderMaterial( {
+
+                uniforms:       {
+                    showOutline: { type: 'f', value: 0 },
+                    ambientWeight: { type: 'f', value : 0 },
+                    diffuseWeight: { type: 'f', value : 1 },
+                    rimWeight: { type: 'f', value : 1 },
+                    specularWeight: { type: 'f', value : 1 },
+                    shininess: { type: 'f', value : 1 },
+                    inkColor: { type: 'v4', value: new THREE.Vector3( 0, 0,0 ) },
+                    solidRender: { type: 'i', value: 0 },
+                    resolution: { type: 'v2', value: new THREE.Vector2( 0, 0 ) },
+                    bkgResolution: { type: 'v2', value: new THREE.Vector2( 0, 0 ) },
+                    lightPosition: { type: 'v3', value: new THREE.Vector3( -100, 100, 0 ) },
+                    hatch1: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '0.jpg' ) },
+                    hatch2: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '1.jpg' ) },
+                    hatch3: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '2.jpg' ) },
+                    hatch4: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '3.jpg' ) },
+                    hatch5: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '4.jpg' ) },
+                    hatch6: { type: 't', value: THREE.ImageUtils.loadTexture( src + id + '5.jpg' ) },
+                    repeat: { type: 'v2', value: new THREE.Vector2( 0, 0 ) }
+                },
+                vertexShader:   document.getElementById( 'vertexshader' ).textContent,
+                fragmentShader: document.getElementById( 'fragmentshader' ).textContent
+
+            });
+
+            
+            material.uniforms.repeat.value.set( 1,1 );
+            material.uniforms.hatch1.value.wrapS = material.uniforms.hatch1.value.wrapT = THREE.RepeatWrapping;
+            material.uniforms.hatch2.value.wrapS = material.uniforms.hatch2.value.wrapT = THREE.RepeatWrapping;
+            material.uniforms.hatch3.value.wrapS = material.uniforms.hatch3.value.wrapT = THREE.RepeatWrapping;
+            material.uniforms.hatch4.value.wrapS = material.uniforms.hatch4.value.wrapT = THREE.RepeatWrapping;
+            material.uniforms.hatch5.value.wrapS = material.uniforms.hatch5.value.wrapT = THREE.RepeatWrapping;
+            material.uniforms.hatch6.value.wrapS = material.uniforms.hatch6.value.wrapT = THREE.RepeatWrapping;
+
+            window.addEventListener( 'resize', onWindowResize, false );
+            onWindowResize();
+
+            container.addEventListener( 'mousedown', onTouchStart );
+            container.addEventListener( 'touchstart', onTouchStart );
+
+            function onTouchStart( event ) {
+
+                var x, y;
+
+                if( event.changedTouches ) {
+                    x = event.changedTouches[ 0 ].pageX;
+                    y = event.changedTouches[ 0 ].pageY;
+                } else {
+                    x = event.clientX;
+                    y = event.clientY;
+                }
+
+                isUserInteracting = true;
+
+                onPointerDownPointerX = x;
+                onPointerDownPointerY = y;
+
+                onPointerDownLon = lon;
+                onPointerDownLat = lat;
+
+                event.preventDefault();
+            }
+
+            container.addEventListener( 'mousemove', onTouchMove );
+            container.addEventListener( 'touchmove', onTouchMove );
+
+            function onTouchMove( event ) {
+
+                if( event.changedTouches ) {
+                    x = event.changedTouches[ 0 ].pageX;
+                    y = event.changedTouches[ 0 ].pageY;
+                } else {
+                    x = event.clientX;
+                    y = event.clientY;
+                }
+
+
+                if ( isUserInteracting ) {
+
+                    nlon = ( x - onPointerDownPointerX ) * 0.5 + onPointerDownLon;
+                    nlat = ( y - onPointerDownPointerY ) * 0.5 + onPointerDownLat;
+
+                }
+
+                event.preventDefault();
+
+            }
+
+            container.addEventListener( 'mouseup', onTouchEnd );
+            container.addEventListener( 'touchend', onTouchEnd );
+
+            function onTouchEnd( event ) {
+
+                if( isUserInteracting ) {
+                    isUserInteracting = false;
+                    event.preventDefault();
+                }
+
+            }
+
+            container.addEventListener( 'mousewheel', onMouseWheel, false );
+            container.addEventListener( 'DOMMouseScroll', onMouseWheel, false);
+
+            function onMouseWheel( event ) {
+
+                // WebKit
+
+                if ( event.wheelDeltaY ) {
+
+                    nfov -= event.wheelDeltaY * 0.01;
+
+                // Opera / Explorer 9
+
+                } else if ( event.wheelDelta ) {
+
+                    nfov -= event.wheelDelta * 0.05;
+
+                // Firefox
+
+                } else if ( event.detail ) {
+
+                    nfov += event.detail * 1.0;
+
+                }
+
+            }
+
+            animate(shader);
+
+        }
+
+        function setModel( id ) {
+
+            if( mesh ) scene.remove( mesh );
+
+            switch( id ) {
+                case 1: mesh = new THREE.Mesh( new THREE.CubeGeometry( 40, 40, 40 ), material ); material.uniforms.repeat.value.set( 1,1 ); break;
+                case 2: mesh = new THREE.Mesh( new THREE.SphereGeometry( 40, 36, 36 ), material ); material.uniforms.repeat.value.set( 4, 4 ); break;
+                case 3: mesh = new THREE.Mesh( new THREE.TorusKnotGeometry( 50, 10, 200, 50, 1 ,3 ), material ); material.uniforms.repeat.value.set( 20, 2 ); break;
+                case 4: mesh = new THREE.Mesh( new THREE.TorusGeometry( 50, 20, 200, 50 ), material ); material.uniforms.repeat.value.set( 4, 2 ); break;
+                case 5:
+                    mesh = new THREE.Mesh( new THREE.IcosahedronGeometry( 40, 4 ), material );
+                    for( var j = 0; j < mesh.geometry.vertices.length; j++ ) {
+                        var v = mesh.geometry.vertices[ j ];
+                        var n = v.clone();
+                        n.normalize();
+                        var f = .05;
+                        var d = 10 * noise.noise( f * v.x, f * v.y, f * v.z );
+                        v.add( n.multiplyScalar( d ) );
+                    }
+                    mesh.geometry.verticesNeedUpdate = true;
+                    mesh.geometry.computeFaceNormals();
+                    mesh.geometry.computeVertexNormals();
+                    material.uniforms.repeat.value.set( 4, 4 ); break;
+                case 6:
+                    var r = 40;
+                    var capsuleGeometry = new THREE.Geometry();
+                    var geometry = new THREE.CylinderGeometry( 50, 50, 100, r, r, 1, false );
+                    var sphereGeometry = new THREE.SphereGeometry( 50, r, r );
+                    mesh = new THREE.Mesh( geometry, material );
+                    THREE.GeometryUtils.merge( capsuleGeometry, mesh );
+                    mesh = new THREE.Mesh( sphereGeometry, material );
+                    mesh.position.set( 0, -50, 0 );
+                    THREE.GeometryUtils.merge( capsuleGeometry, mesh );
+                    mesh = new THREE.Mesh( sphereGeometry, material );
+                    mesh.position.set( 0, 50, 0 );
+                    THREE.GeometryUtils.merge( capsuleGeometry, mesh );
+
+                    mesh = new THREE.Mesh( capsuleGeometry, material );
+                    mesh.scale.set( .5, .5, .5 );
+                    material.uniforms.repeat.value.set( 2, 1 );
+            }
+
+            settings.currentModel = id;
+
+            scene.add( mesh );
+
+        }
+
+        function onWindowResize() {
+
+            material.uniforms.resolution.value.set( window.innerWidth, window.innerHeight );
+
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+
+            renderer.setSize( window.innerWidth, window.innerHeight );
+
+        }
+
+        function animate(shader) {
+
+            render(shader);
+            requestAnimationFrame( animate );
+
+        }
+
+        function hexToRgb(hex) {
+            var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        }
+
+        function render(shader) {
+
+
+            var mId = parseInt( settings.model, 10 );
+            if( mId != settings.currentModel ) setModel( mId );
+
+            var time = Date.now() * 0.005;
+
+            nlat = Math.max( - 85, Math.min( 85, nlat ) );
+
+            lat += ( nlat - lat ) * .1;
+            lon += ( nlon - lon ) * .1;
+
+            phi = ( 90 - lat ) * Math.PI / 180;
+            theta = lon * Math.PI / 180;
+
+
+            material.uniforms.ambientWeight.value = settings.ambient / 100;
+            material.uniforms.diffuseWeight.value = settings.diffuse / 100;
+            material.uniforms.rimWeight.value = settings.rim / 100;
+            material.uniforms.specularWeight.value = settings.specular / 100;
+            material.uniforms.shininess.value = settings.shininess;
+            material.uniforms.solidRender.value = settings.solidRender?1:0;
+
+            material.uniforms.inkColor.value.set( settings.inkColor[ 0 ] / 255, settings.inkColor[ 1 ] / 255, settings.inkColor[ 2 ] / 255, 1 );
+
+            fov += ( nfov - fov ) * .1;
+            camera.projectionMatrix.makePerspective( fov, window.innerWidth / window.innerHeight, 1, 1100 );
+
+            var d = 300;
+            camera.position.x = d * Math.sin( phi ) * Math.cos( theta );
+            camera.position.y = d * Math.cos( phi );
+            camera.position.z = d * Math.sin( phi ) * Math.sin( theta );
+
+            camera.lookAt( scene.position );
+
+            renderer.clear();
+            if( settings.displayOutline ) {
+                material.depthWrite = false;
+                material.uniforms.showOutline.value = 1;
+                renderer.render( scene, camera );
+            }
+            material.depthWrite = true;
+            material.uniforms.showOutline.value = 0;
+            renderer.render( scene, camera );
+
+        }
+
+
+    </script>
+
+</body>
+
+</html>
